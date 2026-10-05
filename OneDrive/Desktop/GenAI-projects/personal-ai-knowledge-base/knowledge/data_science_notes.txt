@@ -1,0 +1,5 @@
+Data Science
+
+Data Science is an interdisciplinary field that uses statistics, programming, and machine learning to extract useful insights from data.
+
+Data Science is used in business, healthcare, finance, marketing, and many other fields.

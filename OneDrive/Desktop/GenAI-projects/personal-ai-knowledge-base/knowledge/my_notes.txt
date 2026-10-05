@@ -1,0 +1,17 @@
+Generative AI
+
+Generative AI is a type of artificial intelligence that can create new content.
+
+It can generate text, images, audio, video, and code.
+
+Large Language Models are AI models that can understand and generate human language.
+
+Examples of generative AI applications include chatbots, text generation, code generation, image generation, and document summarization.
+
+Generative AI can be used in education, healthcare, software development, business, and content creation.
+
+AI models learn patterns from large amounts of data.
+
+Python
+
+Python is a popular programming language.

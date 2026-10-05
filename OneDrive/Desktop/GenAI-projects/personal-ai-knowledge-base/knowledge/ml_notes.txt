@@ -1,0 +1,5 @@
+Machine Learning is a branch of artificial intelligence.
+
+Machine Learning allows computers to learn patterns from data without being explicitly programmed for every task.
+
+Common types of machine learning include supervised learning, unsupervised learning, and reinforcement learning.

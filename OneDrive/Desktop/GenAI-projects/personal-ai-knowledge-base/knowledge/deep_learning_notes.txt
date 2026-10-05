@@ -1,0 +1,7 @@
+Deep Learning
+
+Deep Learning is a subset of Machine Learning.
+
+It uses artificial neural networks with multiple layers to learn complex patterns from data.
+
+Deep Learning is widely used in image recognition, speech recognition, natural language processing, and computer vision.
