@@ -39,7 +39,7 @@ client = genai.Client(api_key=api_key)
 # KNOWLEDGE BASE
 # =========================================
 
-KNOWLEDGE_FOLDER = Path("knowledge")
+KNOWLEDGE_FOLDER = Path(__file__).parent / "knowledge"
 CHUNK_SIZE = 50
 
 KNOWLEDGE_FOLDER.mkdir(
