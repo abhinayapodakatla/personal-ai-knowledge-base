@@ -1,32 +1,39 @@
 import streamlit as st
 from pathlib import Path
-from difflib import get_close_matches
-import re
-import os
+from pypdf import PdfReader
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 from dotenv import load_dotenv
 from google import genai
-from pypdf import PdfReader
+import os
+import re
 
 
-# =========================================
+# ============================================================
 # PAGE CONFIGURATION
-# =========================================
+# ============================================================
 
 st.set_page_config(
-    page_title="Personal AI Knowledge Base",
-    page_icon="🤖",
+    page_title="Personal PDF AI Assistant",
+    page_icon="📚",
     layout="wide"
 )
 
 
-# =========================================
-# GEMINI SETUP
-# =========================================
+# ============================================================
+# GEMINI CONFIGURATION
+# ============================================================
 
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        api_key = None
 
 if not api_key:
     st.error("❌ Gemini API key not found.")
@@ -35,387 +42,9 @@ if not api_key:
 client = genai.Client(api_key=api_key)
 
 
-# =========================================
-# KNOWLEDGE BASE
-# =========================================
-
-KNOWLEDGE_FOLDER = Path(__file__).parent / "knowledge"
-CHUNK_SIZE = 50
-
-KNOWLEDGE_FOLDER.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-
-# =========================================
-# FILE UPLOAD
-# =========================================
-
-with st.sidebar:
-
-    st.subheader("📤 Upload Knowledge")
-
-    uploaded_file = st.file_uploader(
-        "Upload TXT or PDF file",
-        type=["txt", "pdf"]
-    )
-
-    if uploaded_file is not None:
-
-        uploaded_file_path = (
-            KNOWLEDGE_FOLDER / uploaded_file.name
-        )
-
-        if uploaded_file.name.lower().endswith(".txt"):
-
-            uploaded_file_path.write_bytes(
-                uploaded_file.getbuffer()
-            )
-
-            st.success(
-                f"✅ {uploaded_file.name} uploaded!"
-            )
-
-        elif uploaded_file.name.lower().endswith(".pdf"):
-
-            try:
-
-                pdf_reader = PdfReader(
-                    uploaded_file
-                )
-
-                pdf_text = ""
-
-                for page in pdf_reader.pages:
-
-                    text = page.extract_text()
-
-                    if text:
-                        pdf_text += text + "\n"
-
-                if pdf_text.strip():
-
-                    txt_file_path = (
-                        KNOWLEDGE_FOLDER
-                        / f"{uploaded_file.name[:-4]}.txt"
-                    )
-
-                    txt_file_path.write_text(
-                        pdf_text,
-                        encoding="utf-8"
-                    )
-
-                    st.success(
-                        f"✅ {uploaded_file.name} uploaded and processed!"
-                    )
-
-                else:
-
-                    st.error(
-                        "❌ Could not extract text from this PDF."
-                    )
-
-            except Exception as error:
-
-                st.error(
-                    f"❌ PDF Error: {error}"
-                )
-
-
-# =========================================
-# LOAD KNOWLEDGE FILES
-# =========================================
-
-knowledge_files = list(
-    KNOWLEDGE_FOLDER.glob("*.txt")
-)
-
-if not knowledge_files:
-
-    st.error(
-        "❌ No knowledge files found."
-    )
-
-    st.stop()
-
-
-# =========================================
-# TOPIC MAPPING
-# =========================================
-
-topic_files = {}
-
-for file in knowledge_files:
-
-    topic = file.stem.lower()
-
-    topic = topic.replace(
-        "_notes",
-        ""
-    )
-
-    topic = topic.replace(
-        "_",
-        " "
-    )
-
-    topic_files[topic] = file
-
-
-# =========================================
-# ALIASES
-# =========================================
-
-if "ml" in topic_files:
-
-    ml_file = topic_files["ml"]
-
-    topic_files["machine learning"] = ml_file
-    topic_files["regression"] = ml_file
-    topic_files["classification"] = ml_file
-    topic_files["supervised learning"] = ml_file
-    topic_files["unsupervised learning"] = ml_file
-    topic_files["training"] = ml_file
-    topic_files["model"] = ml_file
-    topic_files["prediction"] = ml_file
-
-
-if "deep learning" in topic_files:
-
-    dl_file = topic_files["deep learning"]
-
-    topic_files["neural network"] = dl_file
-    topic_files["neural networks"] = dl_file
-    topic_files["cnn"] = dl_file
-    topic_files["rnn"] = dl_file
-    topic_files["deep neural network"] = dl_file
-
-
-if "data science" in topic_files:
-
-    ds_file = topic_files["data science"]
-
-    topic_files["probability"] = ds_file
-    topic_files["probability theory"] = ds_file
-    topic_files["statistics"] = ds_file
-    topic_files["data analysis"] = ds_file
-    topic_files["data visualization"] = ds_file
-
-
-if "my" in topic_files:
-
-    my_file = topic_files["my"]
-
-    topic_files["generative ai"] = my_file
-    topic_files["generative artificial intelligence"] = my_file
-    topic_files["llm"] = my_file
-    topic_files["llms"] = my_file
-    topic_files["large language model"] = my_file
-    topic_files["large language models"] = my_file
-
-
-# =========================================
-# STOP WORDS
-# =========================================
-
-STOP_WORDS = {
-    "what", "is", "are", "the", "a", "an",
-    "tell", "me", "about", "explain", "please",
-    "can", "you", "give", "some", "information",
-    "on", "do", "know", "i", "want", "to",
-    "how", "does", "it", "work", "define",
-    "describe", "details", "of", "for", "and",
-    "in", "my", "your", "where", "why", "when",
-    "which", "used", "use", "uses", "its",
-    "something"
-}
-
-
-# =========================================
-# TEXT CLEANING
-# =========================================
-
-def clean_text(text):
-
-    text = text.lower()
-
-    text = re.sub(
-        r"[^a-z0-9\s]",
-        " ",
-        text
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
-
-    return text.strip()
-
-
-# =========================================
-# FIND FILE
-# =========================================
-
-def find_file(question):
-
-    question_clean = clean_text(
-        question
-    )
-
-    topics = sorted(
-        topic_files.keys(),
-        key=len,
-        reverse=True
-    )
-
-    for topic in topics:
-
-        if topic in question_clean:
-
-            return topic_files[topic]
-
-    question_words = question_clean.split()
-
-    useful_words = [
-        word
-        for word in question_words
-        if word not in STOP_WORDS
-        and len(word) >= 3
-    ]
-
-    for word in useful_words:
-
-        matches = get_close_matches(
-            word,
-            topics,
-            n=1,
-            cutoff=0.75
-        )
-
-        if matches:
-
-            return topic_files[
-                matches[0]
-            ]
-
-    return None
-
-
-# =========================================
-# CREATE CHUNKS
-# =========================================
-
-def create_chunks(content):
-
-    words = content.split()
-
-    chunks = []
-
-    for i in range(
-        0,
-        len(words),
-        CHUNK_SIZE
-    ):
-
-        chunk = " ".join(
-            words[
-                i:i + CHUNK_SIZE
-            ]
-        )
-
-        if chunk.strip():
-
-            chunks.append(
-                chunk
-            )
-
-    return chunks
-
-
-# =========================================
-# SCORE CHUNKS
-# =========================================
-
-def score_chunk(
-    question,
-    chunk
-):
-
-    question_clean = clean_text(
-        question
-    )
-
-    chunk_clean = clean_text(
-        chunk
-    )
-
-    question_words = [
-        word
-        for word in question_clean.split()
-        if word not in STOP_WORDS
-        and len(word) >= 3
-    ]
-
-    score = 0
-
-    for word in question_words:
-
-        if word in chunk_clean:
-
-            score += 1
-
-    return score
-
-
-# =========================================
-# FIND RELEVANT CHUNKS
-# =========================================
-
-def find_relevant_chunks(
-    question,
-    chunks
-):
-
-    scored_chunks = []
-
-    for chunk in chunks:
-
-        score = score_chunk(
-            question,
-            chunk
-        )
-
-        if score > 0:
-
-            scored_chunks.append(
-                (
-                    score,
-                    chunk
-                )
-            )
-
-    scored_chunks.sort(
-        key=lambda item: item[0],
-        reverse=True
-    )
-
-    if scored_chunks:
-
-        return [
-            chunk
-            for score, chunk
-            in scored_chunks[:2]
-        ]
-
-    return chunks[:1]
-
-
-# =========================================
+# ============================================================
 # CUSTOM CSS
-# =========================================
+# ============================================================
 
 st.markdown(
     """
@@ -424,13 +53,14 @@ st.markdown(
     .main-title {
         font-size: 42px;
         font-weight: 700;
+        text-align: center;
         margin-bottom: 5px;
     }
 
     .subtitle {
+        text-align: center;
         font-size: 18px;
-        opacity: 0.75;
-        margin-bottom: 30px;
+        margin-bottom: 25px;
     }
 
     </style>
@@ -439,36 +69,302 @@ st.markdown(
 )
 
 
-# =========================================
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "documents" not in st.session_state:
+    st.session_state.documents = []
+
+if "pdf_names" not in st.session_state:
+    st.session_state.pdf_names = []
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def clean_text(text):
+    """
+    Clean extracted PDF text.
+    """
+
+    text = text.replace("\x00", " ")
+
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+def extract_pdf(uploaded_file):
+    """
+    Extract text from every page of a PDF.
+
+    Returns:
+        list of dictionaries containing page number and text.
+    """
+
+    documents = []
+
+    try:
+
+        reader = PdfReader(uploaded_file)
+
+        for page_number, page in enumerate(reader.pages, start=1):
+
+            try:
+                page_text = page.extract_text()
+            except Exception:
+                page_text = ""
+
+            if page_text:
+
+                page_text = clean_text(page_text)
+
+                if page_text:
+
+                    documents.append(
+                        {
+                            "page": page_number,
+                            "text": page_text
+                        }
+                    )
+
+    except Exception as error:
+
+        st.error(f"❌ Could not read PDF: {error}")
+
+    return documents
+
+
+def create_chunks(text, chunk_size=120, overlap=30):
+    """
+    Split text into overlapping chunks.
+    """
+
+    words = text.split()
+
+    if not words:
+        return []
+
+    chunks = []
+
+    start = 0
+
+    while start < len(words):
+
+        end = start + chunk_size
+
+        chunk = " ".join(words[start:end])
+
+        if chunk.strip():
+            chunks.append(chunk)
+
+        if end >= len(words):
+            break
+
+        start = end - overlap
+
+    return chunks
+
+
+def build_pdf_chunks(pdf_pages, filename):
+    """
+    Convert PDF pages into searchable chunks.
+    """
+
+    all_chunks = []
+
+    for page_data in pdf_pages:
+
+        page_number = page_data["page"]
+        text = page_data["text"]
+
+        chunks = create_chunks(text)
+
+        for chunk_number, chunk in enumerate(chunks, start=1):
+
+            all_chunks.append(
+                {
+                    "filename": filename,
+                    "page": page_number,
+                    "chunk": chunk_number,
+                    "text": chunk
+                }
+            )
+
+    return all_chunks
+
+
+def find_relevant_chunks(question, documents, top_k=5):
+    """
+    Find the most relevant PDF chunks using TF-IDF similarity.
+    """
+
+    if not documents:
+        return []
+
+    texts = [document["text"] for document in documents]
+
+    all_text = [question] + texts
+
+    try:
+
+        vectorizer = TfidfVectorizer(
+            lowercase=True,
+            stop_words="english",
+            ngram_range=(1, 2)
+        )
+
+        vectors = vectorizer.fit_transform(all_text)
+
+        question_vector = vectors[0]
+
+        document_vectors = vectors[1:]
+
+        similarities = cosine_similarity(
+            question_vector,
+            document_vectors
+        ).flatten()
+
+        ranked_indexes = similarities.argsort()[::-1]
+
+        results = []
+
+        for index in ranked_indexes[:top_k]:
+
+            score = float(similarities[index])
+
+            if score > 0:
+
+                document = documents[index].copy()
+
+                document["score"] = score
+
+                results.append(document)
+
+        return results
+
+    except Exception:
+        return []
+
+
+def create_context(relevant_chunks):
+    """
+    Create context for Gemini.
+    """
+
+    context_parts = []
+
+    for item in relevant_chunks:
+
+        context_parts.append(
+            f"""
+SOURCE FILE: {item['filename']}
+PAGE: {item['page']}
+
+CONTENT:
+{item['text']}
+"""
+        )
+
+    return "\n\n".join(context_parts)
+
+
+# ============================================================
 # SIDEBAR
-# =========================================
+# ============================================================
 
 with st.sidebar:
 
     st.markdown(
         """
         <h2 style="text-align:center;">
-            📚 Knowledge Base
+            📚 PDF Knowledge Base
         </h2>
         """,
         unsafe_allow_html=True
     )
 
-    st.write(
-        "Your personal learning resources"
-    )
+    st.write("Upload PDFs and ask questions about them.")
 
-    st.success(
-        f"📚 {len(knowledge_files)} knowledge files available"
+    st.divider()
+
+    uploaded_files = st.file_uploader(
+        "📄 Upload PDF files",
+        type=["pdf"],
+        accept_multiple_files=True
     )
 
     st.divider()
 
-    for file in knowledge_files:
+    if uploaded_files:
 
-        st.markdown(
-            f"📄 **{file.name}**"
+        st.success(
+            f"📚 {len(uploaded_files)} PDF(s) uploaded"
         )
+
+        if st.button(
+            "🔄 Process PDFs",
+            use_container_width=True
+        ):
+
+            with st.spinner("📖 Reading your PDFs..."):
+
+                all_documents = []
+                pdf_names = []
+
+                for uploaded_file in uploaded_files:
+
+                    pdf_pages = extract_pdf(uploaded_file)
+
+                    if not pdf_pages:
+                        st.warning(
+                            f"⚠️ No readable text found in {uploaded_file.name}"
+                        )
+                        continue
+
+                    chunks = build_pdf_chunks(
+                        pdf_pages,
+                        uploaded_file.name
+                    )
+
+                    all_documents.extend(chunks)
+
+                    pdf_names.append(uploaded_file.name)
+
+                st.session_state.documents = all_documents
+                st.session_state.pdf_names = pdf_names
+                st.session_state.messages = []
+
+            if all_documents:
+
+                st.success(
+                    f"✅ PDFs processed successfully!"
+                )
+
+                st.info(
+                    f"🧩 {len(all_documents)} text chunks created"
+                )
+
+            else:
+
+                st.error(
+                    "❌ No readable text was found in the uploaded PDFs."
+                )
+
+    if st.session_state.pdf_names:
+
+        st.divider()
+
+        st.markdown("### 📄 Uploaded PDFs")
+
+        for name in st.session_state.pdf_names:
+
+            st.write(f"📄 {name}")
 
     st.divider()
 
@@ -483,104 +379,111 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown(
-        "### 💡 Quick Start"
-    )
+    st.markdown("### 💡 How to use")
 
     st.caption(
-        "Try asking:"
-    )
-
-    st.markdown(
         """
-        • What is Python?  
-        • What is Machine Learning?  
-        • What is Deep Learning?  
-        • What is Data Science?  
-        • What is Generative AI?
+        1. Upload a PDF  
+        2. Click Process PDFs  
+        3. Ask a question  
+        4. Get an answer from your PDF
         """
     )
 
     st.divider()
 
-    st.caption(
-        "🤖 Powered by Gemini"
-    )
+    st.caption("🤖 Powered by Google Gemini")
 
 
-# =========================================
+# ============================================================
 # MAIN HEADER
-# =========================================
+# ============================================================
 
 st.markdown(
     """
     <div class="main-title">
-        🤖 Personal AI Knowledge Base
+        📚 Personal PDF AI Assistant
     </div>
 
     <div class="subtitle">
-        Ask questions and get intelligent answers
-        from your personal knowledge.
+        Upload your PDF and ask questions about its content.
     </div>
     """,
     unsafe_allow_html=True
 )
 
+
 st.info(
-    "💡 Ask a question about Python, Machine Learning, "
-    "Deep Learning, Data Science, or Generative AI."
+    "💡 Upload one or more PDFs, process them, and ask questions. "
+    "Answers are generated using the information found in your PDFs."
 )
 
 
-# =========================================
-# CHAT HISTORY
-# =========================================
+# ============================================================
+# SHOW STATUS
+# ============================================================
 
-if "messages" not in st.session_state:
+if st.session_state.documents:
 
-    st.session_state.messages = []
+    st.success(
+        f"✅ Ready! "
+        f"{len(st.session_state.documents)} searchable chunks available."
+    )
 
+else:
 
-if not st.session_state.messages:
-
-    st.info(
-        "👋 Welcome! Ask me anything about your knowledge base."
+    st.warning(
+        "📄 Please upload a PDF from the sidebar and click "
+        "'Process PDFs' before asking questions."
     )
 
 
-# Display previous messages
+# ============================================================
+# DISPLAY CHAT HISTORY
+# ============================================================
 
 for message in st.session_state.messages:
 
-    with st.chat_message(
-        message["role"]
-    ):
+    with st.chat_message(message["role"]):
 
-        st.write(
-            message["content"]
-        )
+        st.write(message["content"])
 
-        if "source" in message:
+        if "sources" in message:
 
-            st.caption(
-                f"📄 Source: {message['source']}"
-            )
+            for source in message["sources"]:
+
+                st.caption(
+                    f"📄 {source['filename']} — Page {source['page']}"
+                )
 
 
-# =========================================
+# ============================================================
 # CHAT INPUT
-# =========================================
+# ============================================================
 
 question = st.chat_input(
-    "Ask a question about your knowledge base..."
+    "Ask a question about your uploaded PDF..."
 )
 
 
+# ============================================================
+# QUESTION PROCESSING
+# ============================================================
+
 if question:
 
-    # =========================================
+    if not st.session_state.documents:
+
+        st.warning(
+            "⚠️ Please upload and process a PDF first."
+        )
+
+        st.stop()
+
+
+    # --------------------------------------------------------
     # USER MESSAGE
-    # =========================================
+    # --------------------------------------------------------
 
     st.session_state.messages.append(
         {
@@ -594,20 +497,22 @@ if question:
         st.write(question)
 
 
-    # =========================================
-    # FIND FILE
-    # =========================================
+    # --------------------------------------------------------
+    # RETRIEVE RELEVANT PDF CONTENT
+    # --------------------------------------------------------
 
-    selected_file = find_file(
-        question
+    relevant_chunks = find_relevant_chunks(
+        question,
+        st.session_state.documents,
+        top_k=5
     )
 
 
-    if selected_file is None:
+    if not relevant_chunks:
 
         answer = (
-            "I couldn't find this topic "
-            "in your knowledge base."
+            "I couldn't find information related to your question "
+            "in the uploaded PDF."
         )
 
         with st.chat_message("assistant"):
@@ -624,75 +529,55 @@ if question:
         st.stop()
 
 
-    # =========================================
-    # READ FILE
-    # =========================================
+    # --------------------------------------------------------
+    # CREATE CONTEXT
+    # --------------------------------------------------------
 
-    try:
-
-        content = selected_file.read_text(
-            encoding="utf-8"
-        )
-
-    except Exception as error:
-
-        st.error(
-            f"❌ Could not read file: {error}"
-        )
-
-        st.stop()
-
-
-    # =========================================
-    # RETRIEVE KNOWLEDGE
-    # =========================================
-
-    chunks = create_chunks(
-        content
-    )
-
-    relevant_chunks = find_relevant_chunks(
-        question,
-        chunks
-    )
-
-    context = "\n\n".join(
+    context = create_context(
         relevant_chunks
     )
 
 
-    # =========================================
-    # CREATE PROMPT
-    # =========================================
+    # --------------------------------------------------------
+    # GEMINI PROMPT
+    # --------------------------------------------------------
 
     prompt = f"""
-You are a helpful AI assistant.
+You are a PDF question-answering assistant.
 
-Answer the user's question using the knowledge provided below.
+Your job is to answer the user's question ONLY using the
+information provided in the PDF context below.
 
-Knowledge:
+PDF CONTEXT:
 {context}
 
-User Question:
+USER QUESTION:
 {question}
 
-Instructions:
-- Use the provided knowledge.
-- Give a clear and simple answer.
-- Give a concise and easy-to-understand response.
-- If the knowledge does not contain the answer, say that the information is not available in the knowledge base.
+IMPORTANT RULES:
+
+1. Answer only from the PDF context.
+2. Do not use outside knowledge.
+3. Do not invent information.
+4. If the answer is not available in the PDF context,
+   clearly say:
+
+   "The information is not available in the uploaded PDF."
+
+5. Give a clear and simple answer.
+6. If possible, explain the answer in a few sentences.
 """
 
 
-    # =========================================
-    # GEMINI
-    # =========================================
+    # --------------------------------------------------------
+    # GEMINI RESPONSE
+    # --------------------------------------------------------
 
     try:
 
         with st.chat_message("assistant"):
 
-            with st.spinner("🤖 Thinking..."):
+            with st.spinner("🤖 Reading your PDF and thinking..."):
 
                 response = client.models.generate_content(
                     model="gemini-3.5-flash-lite",
@@ -703,16 +588,37 @@ Instructions:
 
             st.write(answer)
 
-            st.caption(
-                f"📄 Source: {selected_file.name}"
-            )
+            st.markdown("**📚 Sources used:**")
+
+            displayed_sources = []
+
+            for item in relevant_chunks:
+
+                source_key = (
+                    item["filename"],
+                    item["page"]
+                )
+
+                if source_key not in displayed_sources:
+
+                    displayed_sources.append(source_key)
+
+                    st.caption(
+                        f"📄 {item['filename']} — Page {item['page']}"
+                    )
 
 
         st.session_state.messages.append(
             {
                 "role": "assistant",
                 "content": answer,
-                "source": selected_file.name
+                "sources": [
+                    {
+                        "filename": item["filename"],
+                        "page": item["page"]
+                    }
+                    for item in relevant_chunks
+                ]
             }
         )
 
