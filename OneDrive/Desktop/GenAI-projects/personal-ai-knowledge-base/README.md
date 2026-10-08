@@ -6,7 +6,7 @@ This application allows users to ask questions and receive simple AI-generated a
 
 ## 🚀 Live Demo
 
-👉 Add your Streamlit app link here
+https://personal-ai-knowledge-base-cttfvpf8wt6gbm7bajm3ns.streamlit.app/
 
 ## ✨ Features
 
